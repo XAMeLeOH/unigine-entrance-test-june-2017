@@ -37,19 +37,12 @@ typedef unordered_map<string, unsigned long> frequency_map_t;
 typedef frequency_map_t domain_map_t;
 typedef frequency_map_t path_map_t;
 
-inline bool between(register int x, register int a, register int b) {
-    return x >= a && x <= b;
-}
-
-inline bool is_path_symbol(register char x) {
-    // a-z A-Z 0-9 . , / + _
-    return between(x, 'a', 'z') || between(x, 'A', 'Z') || between(x, '0', '9') || x == '.' || x == ',' || x == '/' || x == '+' || x == '_';
-}
-
-inline bool is_domain_symbol(register char x) {
-    // a-z A-Z 0-9 . -
-    return between(x, 'a', 'z') || between(x, 'A', 'Z') || between(x, '0', '9') || x == '.' || x == '-';
-}
+#define BETWEEN(x, a, b) ((x) >= (a) && (x) <= (b))
+#define IS_LOWER_ALPHA(x) (BETWEEN((x), 'a', 'z'))
+#define IS_UPPER_ALPHA(x) (BETWEEN((x), 'A', 'Z'))
+#define IS_DIGIT(x) (BETWEEN((x), '0', '9'))
+#define IS_DOMAIN_SYMBOL(x) (IS_LOWER_ALPHA(x) || (x) == '.' || (x) == '-' || IS_DIGIT(x) || IS_UPPER_ALPHA(x))
+#define IS_PATH_SYMBOL(x) (IS_LOWER_ALPHA(x) || (x) == '.' || (x) == ',' || (x) == '/' || (x) == '+' || (x) == '_' || IS_DIGIT(x) || IS_UPPER_ALPHA(x))
 
 class UrlParser
 {
@@ -57,19 +50,21 @@ public:
     UrlParser(istream& input): input(input), sz(0) {};
     string next() {
         do {
+            const char * lineptr = line.c_str();
+            const char * lineptr_end = &lineptr[line.size()];
             for(; (sz = line.find("http", sz)) != string::npos; sz++) {
-                if(sz == 0 || line[sz-1] == ' ' || line[sz-1] == '\t') {
-                    string::size_type strptr = line[sz + 4] == 's' ? sz+5 : sz+4;
-                    if(line.find("://", strptr) == strptr) {
+                if(sz == 0 || lineptr[sz-1] == ' ' || lineptr[sz-1] == '\t') {
+                    const char * strptr = line[sz + 4] == 's' ? &lineptr[sz+5] : &lineptr[sz+4];
+                    if(*strptr++ == ':' && *strptr++ == '/' && *strptr++ == '/') {
                         string suffix = "";
-                        for(strptr+=3; strptr<line.size() && is_domain_symbol(line[strptr]); strptr++) {}
-                        if(line[strptr] == '/') {
-                            for(strptr+=1; strptr<line.size() && is_path_symbol(line[strptr]); strptr++) {}
+                        for(; strptr<lineptr_end && IS_DOMAIN_SYMBOL(*strptr); strptr++) {}
+                        if(*strptr == '/') {
+                            for(strptr++; strptr<lineptr_end && IS_PATH_SYMBOL(*strptr); strptr++) {}
                         } else {
                             suffix = "/";
                         }
-                        string result = line.substr(sz, strptr - sz) + suffix;
-                        sz = strptr;
+                        string result = line.substr(sz, strptr - &lineptr[sz]) + suffix;
+                        sz += result.size() - suffix.size();
                         return result;
                     }
                 }
