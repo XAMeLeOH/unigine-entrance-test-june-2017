@@ -44,40 +44,40 @@ typedef frequency_map_t path_map_t;
 #define IS_DOMAIN_SYMBOL(x) (IS_LOWER_ALPHA(x) || (x) == '.' || (x) == '-' || IS_DIGIT(x) || IS_UPPER_ALPHA(x))
 #define IS_PATH_SYMBOL(x) (IS_LOWER_ALPHA(x) || (x) == '.' || (x) == ',' || (x) == '/' || (x) == '+' || (x) == '_' || IS_DIGIT(x) || IS_UPPER_ALPHA(x))
 
-class UrlParser
+unsigned long process(istream& input, domain_map_t& domains, path_map_t& paths)
 {
-public:
-    UrlParser(istream& input): input(input), sz(0) {};
-    string next() {
-        do {
-            const char * lineptr = line.c_str();
-            const char * lineptr_end = &lineptr[line.size()];
-            for(; (sz = line.find("http", sz)) != string::npos; sz++) {
-                if(sz == 0 || lineptr[sz-1] == ' ' || lineptr[sz-1] == '\t') {
-                    const char * strptr = line[sz + 4] == 's' ? &lineptr[sz+5] : &lineptr[sz+4];
-                    if(*strptr++ == ':' && *strptr++ == '/' && *strptr++ == '/') {
-                        string suffix = "";
-                        for(; strptr<lineptr_end && IS_DOMAIN_SYMBOL(*strptr); strptr++) {}
-                        if(*strptr == '/') {
-                            for(strptr++; strptr<lineptr_end && IS_PATH_SYMBOL(*strptr); strptr++) {}
-                        } else {
-                            suffix = "/";
-                        }
-                        string result = line.substr(sz, strptr - &lineptr[sz]) + suffix;
-                        sz += result.size() - suffix.size();
-                        return result;
+    unsigned long counter = 0;
+    string::size_type pos;
+    string line;
+    const char * lineptr, * lineptr_end, * tokenptr;
+
+    while(getline(input, line)) {
+        pos = 0;
+        lineptr = line.c_str();
+        lineptr_end = &lineptr[line.size()];
+        for(; (pos = line.find("http", pos)) != string::npos; pos++) {
+            if(pos == 0 || lineptr[pos-1] == ' ' || lineptr[pos-1] == '\t') {
+                const char * strptr = line[pos + 4] == 's' ? &lineptr[pos+5] : &lineptr[pos+4];
+                if(*strptr++ == ':' && *strptr++ == '/' && *strptr++ == '/') {
+                    tokenptr = strptr;
+                    for(; strptr<lineptr_end && IS_DOMAIN_SYMBOL(*strptr); strptr++) {}
+                    if(strptr == tokenptr) continue;
+                    counter++;
+                    domains[string(tokenptr, strptr - tokenptr)] += 1;
+                    if(*strptr == '/') {
+                        tokenptr = strptr;
+                        for(strptr++; strptr<lineptr_end && IS_PATH_SYMBOL(*strptr); strptr++) {}
+                        paths[string(tokenptr, strptr - tokenptr)] += 1;
+                    } else {
+                        paths["/"] += 1;
                     }
                 }
             }
-            line = ""; sz = 0;
-        } while(getline(input, line));
-        return string();
+        }
     }
-private:
-    istream& input;
-    string line;
-    string::size_type sz;
-};
+
+    return counter;
+}
 
 string print_top(const frequency_map_t& source, unsigned long topN, const string& caption)
 {
@@ -86,7 +86,7 @@ string print_top(const frequency_map_t& source, unsigned long topN, const string
     for_each(source.begin(), source.end(), [&slist](const frequency_map_t::value_type& a) {
         slist.push_back(a);
     });
-    topN = slist.size() > topN ? topN : slist.size();
+    topN = !topN || topN > slist.size() ? slist.size() : topN;
     partial_sort(slist.begin(), slist.begin() + topN, slist.end(), [](const frequency_map_t::value_type& a, const frequency_map_t::value_type& b) {
         return b.second < a.second || (b.second == a.second && a.first < b.first);
     });
@@ -102,13 +102,7 @@ string get_statistics(istream& input, unsigned long topN)
     stringstream output;
     domain_map_t domains;
     path_map_t paths;
-    UrlParser parser(input);
-    unsigned long counter = 0;
-    for(string url=parser.next(); url.size(); url=parser.next(), counter ++) {
-        string::size_type domain = url.find("://") + 3, path = url.find("/", domain+1);
-        domains[url.substr(domain, path - domain)] += 1;
-        paths[url.substr(path)] += 1;
-    }
+    unsigned long counter = process(input, domains, paths);
     output << "total urls " << counter << ", domains " << domains.size() << ", paths " << paths.size() << endl << endl;
     output << print_top(domains, topN, "top domains") << endl;
     output << print_top(paths, topN, "top paths");
@@ -118,7 +112,7 @@ string get_statistics(istream& input, unsigned long topN)
 Arguments parse_args(int argc, char * argv[])
 {
     Arguments a;
-    a.topN = 10;
+    a.topN = 0;
     for(int i=0; i<argc; i++) {
         string arg(argv[i]);
         if(arg.find("-n") == 0) {
@@ -134,8 +128,8 @@ Arguments parse_args(int argc, char * argv[])
             if(sz != opt.size()) {
                 throw ArgumentParseException("Unable to parse int from string \"" + opt + "\"");
             }
-            if(opt[0] == '-' || a.topN < 1) {
-                throw ArgumentParseException("-n option should be greater than 0");
+            if(opt[0] == '-') {
+                throw ArgumentParseException("-n option should not be negative");
             }
         } else if(!a.input.size()) {
             a.input = arg;
